@@ -1,0 +1,85 @@
+groups:
+  - name: k8s-auto-healer.rules
+    interval: 30s
+    rules:
+      # ── Pod Crash Loop ──────────────────────────────────────────
+      - alert: PodCrashLooping
+        expr: |
+          rate(kube_pod_container_status_restarts_total[5m]) * 60 > 1
+        for: 2m
+        labels:
+          severity: critical
+          team: sre
+        annotations:
+          summary: "Pod {{ $labels.pod }} is crash-looping"
+          description: "Pod {{ $labels.pod }} in {{ $labels.namespace }} has restarted more than once per minute for 2 minutes."
+          runbook: "https://github.com/kemalcan-dev/k8s-auto-healer/wiki/pod-crashloop"
+
+      # ── High Memory Usage ───────────────────────────────────────
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            container_memory_working_set_bytes{container!=""}
+            / on(pod, namespace)
+            kube_pod_container_resource_limits{resource="memory", container!=""}
+          ) > 0.90
+        for: 3m
+        labels:
+          severity: warning
+          team: sre
+        annotations:
+          summary: "High memory on pod {{ $labels.pod }}"
+          description: "Container {{ $labels.container }} is using >90% of its memory limit for 3+ minutes."
+
+      # ── CPU Spike ───────────────────────────────────────────────
+      - alert: CPUSpikeDetected
+        expr: |
+          (
+            rate(container_cpu_usage_seconds_total{container!=""}[2m])
+            / on(pod, namespace)
+            kube_pod_container_resource_limits{resource="cpu", container!=""}
+          ) > 0.85
+        for: 2m
+        labels:
+          severity: warning
+          team: sre
+        annotations:
+          summary: "CPU spike on {{ $labels.deployment }}"
+          description: "Deployment {{ $labels.deployment }} CPU usage exceeded 85% for 2 minutes. Auto-scaling triggered."
+
+      # ── Deployment Unhealthy ────────────────────────────────────
+      - alert: DeploymentUnhealthy
+        expr: |
+          kube_deployment_status_replicas_available
+          / kube_deployment_spec_replicas < 0.5
+        for: 3m
+        labels:
+          severity: critical
+          team: sre
+        annotations:
+          summary: "Deployment {{ $labels.deployment }} has <50% replicas available"
+          description: "Less than 50% of desired pods are available for 3 minutes. Auto-rollback may be triggered."
+
+      # ── DB Connection Failure ───────────────────────────────────
+      - alert: DBConnectionFailed
+        expr: |
+          pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: sre
+        annotations:
+          summary: "PostgreSQL instance unreachable"
+          description: "postgres_exporter reports DB at {{ $labels.instance }} is down."
+
+      # ── Service Down ─────────────────────────────────────────────
+      - alert: ServiceEndpointDown
+        expr: |
+          kube_endpoint_address_available == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: sre
+        annotations:
+          summary: "Service {{ $labels.endpoint }} has no available endpoints"
+          description: "All endpoints for {{ $labels.endpoint }} in {{ $labels.namespace }} are unavailable."

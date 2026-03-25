@@ -1,0 +1,83 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auto-healer
+  namespace: monitoring
+  labels:
+    app: auto-healer
+    version: "1.0.0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auto-healer
+  template:
+    metadata:
+      labels:
+        app: auto-healer
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: auto-healer
+      containers:
+        - name: auto-healer
+          image: ghcr.io/kemalcan-dev/k8s-auto-healer:latest
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: HEAL_NAMESPACE
+              value: "default"
+            - name: SLACK_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: auto-healer-secrets
+                  key: slack-webhook-url
+            - name: HEALER_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: auto-healer-secrets
+                  key: bearer-token
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auto-healer-svc
+  namespace: monitoring
+  labels:
+    app: auto-healer
+spec:
+  selector:
+    app: auto-healer
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
